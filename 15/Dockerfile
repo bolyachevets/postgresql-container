@@ -1,4 +1,7 @@
-FROM ubi8/s2i-core:rhel8.9
+#FROM roboxes/rhel8:4.3.6
+#FROM dgianno/rhel8:1.0
+FROM registry.access.redhat.com/ubi8/ubi:latest
+
 
 # PostgreSQL image for OpenShift.
 # Volumes:
@@ -14,7 +17,8 @@ ENV POSTGRESQL_VERSION=15 \
     POSTGRESQL_PREV_VERSION=13 \
     HOME=/var/lib/pgsql \
     PGUSER=postgres \
-    APP_DATA=/opt/app-root
+    APP_DATA=/opt/app-root \
+    STI_SCRIPTS_PATH=/usr/libexec/s2i
 
 ENV SUMMARY="PostgreSQL is an advanced Object-Relational database management system" \
     DESCRIPTION="PostgreSQL is an advanced Object-Relational database management system (DBMS). \
@@ -45,15 +49,13 @@ RUN curl https://techsupport.enterprisedb.com/api/repository/dl/default/release/
 # This image must forever use UID 26 for postgres user so our volumes are
 # safe in the future. This should *never* change, the last test is there
 # to make sure of that.
-RUN yum -y module enable postgresql:15 && \
-    INSTALL_PKGS="rsync tar gettext bind-utils nss_wrapper postgresql-server postgresql-contrib" && \
-    INSTALL_PKGS="$INSTALL_PKGS pgaudit" && \
+RUN yum -y update && \
+    INSTALL_PKGS="rsync tar gettext bind-utils nss_wrapper postgresql15-server postgresql15-contrib" && \
     yum -y --setopt=tsflags=nodocs install $INSTALL_PKGS && \
     rpm -V $INSTALL_PKGS && \
-    postgres -V | grep -qe "$POSTGRESQL_VERSION\." && echo "Found VERSION $POSTGRESQL_VERSION" && \
+    psql -V | grep -qe "$POSTGRESQL_VERSION\." && echo "Found VERSION $POSTGRESQL_VERSION" && \
     (yum -y reinstall tzdata || yum -y update tzdata ) && \
     yum -y clean all --enablerepo='*' && \
-    localedef -f UTF-8 -i en_US en_US.UTF-8 && \
     test "$(id postgres)" = "uid=26(postgres) gid=26(postgres) groups=26(postgres)" && \
     mkdir -p /var/lib/pgsql/data && \
     /usr/libexec/fix-permissions /var/lib/pgsql /var/run/postgresql
@@ -82,7 +84,8 @@ COPY ./s2i/bin/ $STI_SCRIPTS_PATH
 # 2. we call fix-permissions on $APP_DATA here directly (UID=0 during build
 #    anyways) to assure that s2i process is actually able to _read_ the
 #    user-specified scripting.
-RUN usermod -a -G root postgres && \
+RUN mkdir "$APP_DATA" && \
+    usermod -a -G root postgres && \
     /usr/libexec/fix-permissions --read-only "$APP_DATA"
 
 USER 26
